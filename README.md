@@ -1,11 +1,13 @@
 # Wundergraph Homebrew
 
-## How do I install these formulae?
+## wunderctl
 
-`brew install wundergraph/wundergraph/<formula>`
+### How do I install these formulae?
 
-Or `brew tap wundergraph/wundergraph` and then `brew install <formula>`.
+`brew install wundergraph/wundergraph/wunderctl`
+
+Or `brew tap wundergraph/wundergraph` and then `brew install wunderctl`.
 
 ## Documentation
 
-`brew help`, `man brew` or check [Homebrew's documentation](https://docs.brew.sh).
+`https://wundergraph.com/docs`
