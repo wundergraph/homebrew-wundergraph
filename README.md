@@ -1,4 +1,4 @@
-# Wundergraph Wundergraph
+# Wundergraph Homebrew
 
 ## How do I install these formulae?
 
