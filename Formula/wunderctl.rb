@@ -5,22 +5,22 @@
 class Wunderctl < Formula
   desc "wunderctl - the WunderGraph Command Line Interface"
   homepage "https://wundergraph.com/"
-  version "0.94.0"
+  version "0.94.1"
   license "Apache-2.0"
   depends_on :macos
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/wundergraph/wundergraph/releases/download/v0.94.0/wunderctl_0.94.0_Darwin_arm64.tar.gz", :using => CurlDownloadStrategy
-      sha256 "a974428af2dc331196dcef832d204c16af611b712f872a3d0c324acdf708569f"
+      url "https://github.com/wundergraph/wundergraph/releases/download/v0.94.1/wunderctl_0.94.1_Darwin_arm64.tar.gz", :using => CurlDownloadStrategy
+      sha256 "b12e6a853ee00b3070572dd50a1f4b18fe7670326d9ef9467b86afed1e881025"
 
       def install
         bin.install "wunderctl"
       end
     end
     if Hardware::CPU.intel?
-      url "https://github.com/wundergraph/wundergraph/releases/download/v0.94.0/wunderctl_0.94.0_Darwin_x86_64.tar.gz", :using => CurlDownloadStrategy
-      sha256 "758c74f48d76f33ea3fd1db541b06a33f1b7d7373d817302c4ed455c5e814619"
+      url "https://github.com/wundergraph/wundergraph/releases/download/v0.94.1/wunderctl_0.94.1_Darwin_x86_64.tar.gz", :using => CurlDownloadStrategy
+      sha256 "6cc035b003910082e482db2c0420c0660dc946260a4da6fad776dc314fa61801"
 
       def install
         bin.install "wunderctl"
