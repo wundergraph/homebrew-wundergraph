@@ -1,0 +1,49 @@
+name: Bump wgc
+on:
+  repository_dispatch:
+    types: [wgc-release]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "wgc version (blank = latest on npm)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version, url, sha256
+        id: v
+        run: |
+          set -euo pipefail
+          V="${{ github.event.client_payload.version || inputs.version }}"
+          [ -z "$V" ] && V="$(npm view wgc version)"
+          CUR="$(grep -oE 'wgc-[0-9]+\.[0-9]+\.[0-9]+\.tgz' Formula/wgc.rb | grep -oE '[0-9.]+' | head -1)"
+          if [ "$V" = "$CUR" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          URL="https://registry.npmjs.org/wgc/-/wgc-${V}.tgz"
+          SHA="$(curl -fsSL "$URL" | shasum -a 256 | cut -d' ' -f1)"
+          { echo "v=$V"; echo "url=$URL"; echo "sha=$SHA"; echo "changed=true"; } >> "$GITHUB_OUTPUT"
+
+      - name: Rewrite formula
+        if: steps.v.outputs.changed == 'true'
+        env:
+          URL: "${{ steps.v.outputs.url }}"
+          SHA: "${{ steps.v.outputs.sha }}"
+        run: |
+          set -euo pipefail
+          sed -i -E "s|url \"https://registry.npmjs.org/wgc/-/wgc-[0-9.]+\.tgz\"|url \"${URL}\"|" Formula/wgc.rb
+          sed -i -E "s|sha256 \"[a-f0-9]{64}\"|sha256 \"${SHA}\"|" Formula/wgc.rb
+
+      - name: Commit and push
+        if: steps.v.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "wgc ${{ steps.v.outputs.v }}"
+          git push

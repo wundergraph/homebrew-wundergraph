@@ -1,13 +1,19 @@
-# Wundergraph Homebrew
+# WunderGraph Cosmo Homebrew
 
-## wunderctl
+## wgc (WunderGraph Cosmo CLI)
 
-### How do I install these formulae?
+`brew install wundergraph/cosmo/wgc`
 
-`brew install wundergraph/wundergraph/wunderctl`
+Or `brew tap wundergraph/cosmo` then `brew install wgc`.
 
-Or `brew tap wundergraph/wundergraph` and then `brew install wunderctl`.
+> Requires Node.js (installed automatically as a dependency).
+> Not using Homebrew? Run `npx wgc` instead.
+
+## Migrating from wunderctl
+
+`wunderctl` is deprecated and replaced by the WunderGraph Cosmo CLI (`wgc`).
+Run `brew uninstall wunderctl` and `brew install wgc`.
 
 ## Documentation
 
-`https://wundergraph.com/docs`
+- wgc: https://cosmo-docs.wundergraph.com/cli/intro

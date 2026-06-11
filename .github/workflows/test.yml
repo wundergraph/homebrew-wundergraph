@@ -1,0 +1,19 @@
+name: brew test-bot
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Homebrew/actions/setup-homebrew@master
+      - run: brew style Formula/wgc.rb
+      - run: brew audit --formula Formula/wgc.rb
+      - run: brew install --build-from-source Formula/wgc.rb
+      - run: brew test wgc
