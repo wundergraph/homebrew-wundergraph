@@ -7,9 +7,9 @@ class Wunderctl < Formula
   version "0.180.0"
   license "Apache-2.0"
 
-  deprecate! date:                "2026-06-11",
-             because:             "wunderctl has been replaced by the WunderGraph Cosmo CLI",
-             replacement_formula: "wgc"
+  disable! date:                "2026-06-11",
+           because:             "wunderctl has been replaced by the WunderGraph Cosmo CLI",
+           replacement_formula: "wgc"
 
   depends_on :macos
 

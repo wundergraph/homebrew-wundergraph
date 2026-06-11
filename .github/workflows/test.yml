@@ -4,23 +4,36 @@ on:
     branches: [main]
   pull_request:
 
+env:
+  HOMEBREW_NO_REQUIRE_TAP_TRUST: 1
+
 jobs:
-  test-bot:
+  test:
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
     steps:
-      - name: Set up Homebrew
-        id: set-up-homebrew
-        uses: Homebrew/actions/setup-homebrew@master
+      - uses: Homebrew/actions/setup-homebrew@main
 
-      - run: brew test-bot --only-cleanup-before
+      - uses: actions/checkout@v4
+        with:
+          path: tap-src
 
-      - run: brew test-bot --only-setup
+      - name: Link repo as a tap
+        id: tap
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          name="${GITHUB_REPOSITORY#*/homebrew-}"
+          dest="$(brew --repository)/Library/Taps/${owner}/homebrew-${name}"
+          rm -rf "$dest"
+          mkdir -p "$(dirname "$dest")"
+          ln -s "$GITHUB_WORKSPACE/tap-src" "$dest"
+          echo "formula=${owner}/${name}/wgc" >> "$GITHUB_OUTPUT"
 
-      - run: brew test-bot --only-tap-syntax
-
-      - run: brew test-bot --only-formulae
-        if: github.event_name == 'pull_request'
+      - run: brew style "${{ steps.tap.outputs.formula }}"
+      - run: brew audit --new "${{ steps.tap.outputs.formula }}"
+      - run: brew install --build-from-source "${{ steps.tap.outputs.formula }}"
+      - run: brew test "${{ steps.tap.outputs.formula }}"
