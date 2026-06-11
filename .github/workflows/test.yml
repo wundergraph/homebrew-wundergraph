@@ -1,0 +1,40 @@
+name: brew test-bot
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  HOMEBREW_NO_REQUIRE_TAP_TRUST: 1
+  HOMEBREW_NO_SANDBOX_LINUX: 1
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: Homebrew/actions/setup-homebrew@main
+
+      - uses: actions/checkout@v4
+        with:
+          path: tap-src
+
+      - name: Link repo as a tap
+        id: tap
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          name="${GITHUB_REPOSITORY#*/homebrew-}"
+          dest="$(brew --repository)/Library/Taps/${owner}/homebrew-${name}"
+          rm -rf "$dest"
+          mkdir -p "$(dirname "$dest")"
+          ln -s "$GITHUB_WORKSPACE/tap-src" "$dest"
+          echo "formula=${owner}/${name}/wgc" >> "$GITHUB_OUTPUT"
+
+      - run: brew style "${{ steps.tap.outputs.formula }}"
+      - run: brew audit --new "${{ steps.tap.outputs.formula }}"
+      - run: brew install --build-from-source "${{ steps.tap.outputs.formula }}"
+      - run: brew test "${{ steps.tap.outputs.formula }}"
