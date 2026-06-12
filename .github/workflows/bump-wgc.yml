@@ -23,7 +23,7 @@ jobs:
           set -euo pipefail
           V="${{ github.event.client_payload.version || inputs.version }}"
           [ -z "$V" ] && V="$(npm view wgc version)"
-          CUR="$(grep -oE 'wgc-[0-9]+\.[0-9]+\.[0-9]+\.tgz' Formula/wgc.rb | grep -oE '[0-9.]+' | head -1)"
+          CUR="$(grep -oE 'wgc-[0-9]+\.[0-9]+\.[0-9]+\.tgz' Formula/wgc.rb | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
           if [ "$V" = "$CUR" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
           URL="https://registry.npmjs.org/wgc/-/wgc-${V}.tgz"
           SHA="$(curl -fsSL "$URL" | shasum -a 256 | cut -d' ' -f1)"
@@ -43,6 +43,10 @@ jobs:
         if: steps.v.outputs.changed == 'true'
         run: |
           set -euo pipefail
+          if git diff --quiet; then
+            echo "Formula already at wgc ${{ steps.v.outputs.v }}; nothing to commit."
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "wgc ${{ steps.v.outputs.v }}"
