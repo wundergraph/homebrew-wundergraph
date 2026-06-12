@@ -4,8 +4,8 @@
 class Wgc < Formula
   desc "WunderGraph Cosmo CLI"
   homepage "https://cosmo-docs.wundergraph.com/cli/intro"
-  url "https://registry.npmjs.org/wgc/-/wgc-0.123.0.tgz"
-  sha256 "9a2e1f5140b8601672cdd8a4b17a59e210c2a7180cc4cf3bb4895b5a8e69d184"
+  url "https://registry.npmjs.org/wgc/-/wgc-0.124.0.tgz"
+  sha256 "9a305db33be4f099cc76e5034ac55ee252949e2e04c011bc5ae68dc8509c91a3"
   license "Apache-2.0"
 
   depends_on "node@24"
