@@ -7,13 +7,36 @@ on:
       version:
         description: "wgc version (blank = latest on npm)"
         required: false
+  schedule:
+    # Retry loop. A freshly published wgc cannot be bottled until npm's 24h
+    # release-cooldown (--min-release-age) lifts for it and its dependencies.
+    # Each run is a no-op once the formula is already current, so this just
+    # keeps retrying a pending bump until the cooldown allows the build.
+    - cron: "17 */3 * * *"
 
 permissions:
   contents: write
 
+# Never let two bumps (e.g. a dispatch and a scheduled retry) race on the
+# formula or the release assets.
+concurrency:
+  group: bump-wgc
+  cancel-in-progress: false
+
+env:
+  HOMEBREW_NO_REQUIRE_TAP_TRUST: 1
+  HOMEBREW_NO_SANDBOX_LINUX: 1
+
 jobs:
-  bump:
+  # 1. Decide whether a bump is needed and resolve the npm tarball + checksum.
+  resolve:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.v.outputs.changed }}
+      version: ${{ steps.v.outputs.v }}
+      url: ${{ steps.v.outputs.url }}
+      sha: ${{ steps.v.outputs.sha }}
+      tag: ${{ steps.v.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,30 +47,137 @@ jobs:
           V="${{ github.event.client_payload.version || inputs.version }}"
           [ -z "$V" ] && V="$(npm view wgc version)"
           CUR="$(grep -oE 'wgc-[0-9]+\.[0-9]+\.[0-9]+\.tgz' Formula/wgc.rb | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
-          if [ "$V" = "$CUR" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$V" = "$CUR" ]; then
+            echo "Formula already at wgc ${V}; nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           URL="https://registry.npmjs.org/wgc/-/wgc-${V}.tgz"
           SHA="$(curl -fsSL "$URL" | shasum -a 256 | cut -d' ' -f1)"
-          { echo "v=$V"; echo "url=$URL"; echo "sha=$SHA"; echo "changed=true"; } >> "$GITHUB_OUTPUT"
+          {
+            echo "v=$V"
+            echo "url=$URL"
+            echo "sha=$SHA"
+            echo "tag=wgc-$V"
+            echo "changed=true"
+          } >> "$GITHUB_OUTPUT"
 
-      - name: Rewrite formula
-        if: steps.v.outputs.changed == 'true'
-        env:
-          URL: "${{ steps.v.outputs.url }}"
-          SHA: "${{ steps.v.outputs.sha }}"
+  # 2. Build a bottle per platform. ANY failure (e.g. release cooldown not yet
+  #    lifted) aborts the whole bump; the schedule above retries it later. The
+  #    GitHub release is created only *after* a build succeeds, so a bump that
+  #    is still waiting on the cooldown never leaves an empty orphaned release.
+  bottle:
+    needs: resolve
+    if: needs.resolve.outputs.changed == 'true'
+    strategy:
+      fail-fast: true
+      matrix:
+        # Apple Silicon (built on the oldest arm64 image for widest forward
+        # coverage) + x86_64 Linux. Extend here (e.g. macos-13 for Intel) as
+        # needed; wgc bottles are :any_skip_relocation so content is portable.
+        os: [macos-14, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: Homebrew/actions/setup-homebrew@main
+
+      - uses: actions/checkout@v4
+        with:
+          path: tap-src
+
+      - name: Link repo as a tap and apply candidate version
+        id: tap
         run: |
           set -euo pipefail
-          sed -i -E "s|url \"https://registry.npmjs.org/wgc/-/wgc-[0-9.]+\.tgz\"|url \"${URL}\"|" Formula/wgc.rb
-          sed -i -E "s|sha256 \"[a-f0-9]{64}\"|sha256 \"${SHA}\"|" Formula/wgc.rb
+          owner="${GITHUB_REPOSITORY%%/*}"
+          name="${GITHUB_REPOSITORY#*/homebrew-}"
+          dest="$(brew --repository)/Library/Taps/${owner}/homebrew-${name}"
+          rm -rf "$dest"
+          mkdir -p "$(dirname "$dest")"
+          ln -s "$GITHUB_WORKSPACE/tap-src" "$dest"
+          f="$dest/Formula/wgc.rb"
+          perl -0pi -e 's|url "https://registry\.npmjs\.org/wgc/-/wgc-[0-9.]+\.tgz"|url "${{ needs.resolve.outputs.url }}"|' "$f"
+          perl -0pi -e 's|sha256 "[a-f0-9]{64}"|sha256 "${{ needs.resolve.outputs.sha }}"|' "$f"
+          echo "formula=${owner}/${name}/wgc" >> "$GITHUB_OUTPUT"
+
+      - name: Build bottle (fails until the npm release cooldown lifts)
+        run: |
+          set -euo pipefail
+          brew install --build-bottle "${{ steps.tap.outputs.formula }}"
+          brew bottle --json --no-rebuild \
+            --root-url="https://github.com/${GITHUB_REPOSITORY}/releases/download/${{ needs.resolve.outputs.tag }}" \
+            "${{ steps.tap.outputs.formula }}"
+
+      - name: Upload bottle metadata for the publish job
+        uses: actions/upload-artifact@v4
+        with:
+          name: bottle-json-${{ matrix.os }}
+          path: tap-src/*.bottle.json
+
+      - name: Upload bottle tarball to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd tap-src
+          tag="${{ needs.resolve.outputs.tag }}"
+          # Create the release lazily, now that a build has actually succeeded
+          # (i.e. the cooldown has lifted). Idempotent and race-tolerant across
+          # the matrix: if another platform job already made it, creation is a
+          # harmless no-op and we just verify it exists before uploading.
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+                 --title "$tag" --notes "Homebrew bottles for wgc ${{ needs.resolve.outputs.version }}" \
+            || gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null
+          # `brew bottle` writes a double-dash local name; the download name
+          # (referenced by the bottle DSL) uses a single dash.
+          for f in *--*.bottle.tar.gz; do
+            dl="${f/--/-}"
+            mv "$f" "$dl"
+            gh release upload "$tag" "$dl" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+          done
+
+  # 3. All bottles built and uploaded: write version + bottle block atomically.
+  publish:
+    needs: [resolve, bottle]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: Homebrew/actions/setup-homebrew@main
+
+      - uses: actions/checkout@v4
+        with:
+          path: tap-src
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: bottle-json
+          pattern: bottle-json-*
+          merge-multiple: true
+
+      - name: Link repo as a tap, apply version, merge bottle block
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY%%/*}"
+          name="${GITHUB_REPOSITORY#*/homebrew-}"
+          dest="$(brew --repository)/Library/Taps/${owner}/homebrew-${name}"
+          rm -rf "$dest"
+          mkdir -p "$(dirname "$dest")"
+          ln -s "$GITHUB_WORKSPACE/tap-src" "$dest"
+          f="$dest/Formula/wgc.rb"
+          perl -0pi -e 's|url "https://registry\.npmjs\.org/wgc/-/wgc-[0-9.]+\.tgz"|url "${{ needs.resolve.outputs.url }}"|' "$f"
+          perl -0pi -e 's|sha256 "[a-f0-9]{64}"|sha256 "${{ needs.resolve.outputs.sha }}"|' "$f"
+          # Replaces any existing bottle block with the freshly built shas.
+          brew bottle --merge --write --no-commit "$GITHUB_WORKSPACE/bottle-json"/*.bottle.json
 
       - name: Commit and push
-        if: steps.v.outputs.changed == 'true'
         run: |
           set -euo pipefail
+          cd tap-src
           if git diff --quiet; then
-            echo "Formula already at wgc ${{ steps.v.outputs.v }}; nothing to commit."
+            echo "No formula changes to commit."
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "wgc ${{ steps.v.outputs.v }}"
+          git commit -am "wgc ${{ needs.resolve.outputs.version }}"
           git push
